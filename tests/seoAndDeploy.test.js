@@ -48,20 +48,25 @@ describe('SEO, Accessibility & Deploy Readiness', () => {
     expect(doc.querySelector('noscript')).not.toBeNull();
   });
 
-  it('provides valid robots.txt, sitemap.xml, webmanifest, favicon, and OG assets', () => {
+  it('provides valid robots.txt, sitemap.xml, webmanifest, favicon, music, and OG assets', () => {
     const publicFiles = [
       'robots.txt',
       'sitemap.xml',
       'site.webmanifest',
       'favicon.svg',
       'og-cover.png',
-      'apple-touch-icon.png'
+      'apple-touch-icon.png',
+      'music/theme.m4a'
     ];
     for (const file of publicFiles) {
       const p = path.join(ROOT, 'public', file);
       expect(fs.existsSync(p), `Missing public asset: ${file}`).toBe(true);
       expect(fs.statSync(p).size).toBeGreaterThan(30);
     }
+
+    expect(fs.existsSync(path.join(ROOT, 'README.md'))).toBe(false);
+    expect(doc.querySelector('audio#bg-music')?.getAttribute('src')).toBe('./music/theme.m4a');
+    expect(doc.querySelector('button#btn-music-toggle')).not.toBeNull();
 
     const robots = fs.readFileSync(path.join(ROOT, 'public', 'robots.txt'), 'utf-8');
     expect(robots).toContain('User-agent: *');

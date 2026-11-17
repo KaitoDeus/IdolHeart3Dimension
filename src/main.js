@@ -3,6 +3,14 @@ import { CDRAMA_IDOLS } from './data/idols.js';
 import { HeartScene } from './three/HeartScene.js';
 
 const canvas = document.getElementById('heart-canvas');
+const appShell = document.getElementById('app');
+
+const bgMusic = document.getElementById('bg-music');
+const btnMusicToggle = document.getElementById('btn-music-toggle');
+const musicBtnLabel = document.getElementById('music-btn-label');
+
+const btnColorToggle = document.getElementById('btn-color-toggle');
+const colorBtnLabel = document.getElementById('color-btn-label');
 
 const btnAutoRotate = document.getElementById('btn-auto-rotate');
 const btnOpenGallery = document.getElementById('btn-open-gallery');
@@ -36,11 +44,77 @@ let activeFilter = 'all';
 let currentLightboxList = [...orderedIdols];
 let currentLightboxIdx = 0;
 let currentMode = 'orbit';
+let currentHeartTheme = 'cyan';
 let autoRotateEnabled = true;
 let galleryOpenTimer = null;
+let userPausedMusic = false;
+
+function setMusicPlayingUI(isPlaying) {
+  if (!btnMusicToggle || !musicBtnLabel) return;
+  btnMusicToggle.classList.toggle('is-playing', isPlaying);
+  btnMusicToggle.classList.toggle('is-active', isPlaying);
+  btnMusicToggle.setAttribute('aria-pressed', String(isPlaying));
+  btnMusicToggle.title = isPlaying ? 'Tạm dừng nhạc nền' : 'Phát nhạc nền';
+  musicBtnLabel.textContent = isPlaying ? 'Tạm dừng' : 'Phát nhạc';
+}
+
+function tryPlayMusic() {
+  if (!bgMusic || !bgMusic.paused) return;
+  try {
+    const playPromise = bgMusic.play();
+    if (playPromise && typeof playPromise.then === 'function') {
+      playPromise.catch(() => {
+        setMusicPlayingUI(false);
+      });
+    }
+  } catch {
+    setMusicPlayingUI(false);
+  }
+}
+
+if (bgMusic) {
+  bgMusic.volume = 0.65;
+  bgMusic.addEventListener('play', () => setMusicPlayingUI(true));
+  bgMusic.addEventListener('pause', () => setMusicPlayingUI(false));
+  // Attempt gentle autoplay if browser permits
+  tryPlayMusic();
+}
+
+if (btnMusicToggle && bgMusic) {
+  btnMusicToggle.addEventListener('click', () => {
+    if (bgMusic.paused) {
+      userPausedMusic = false;
+      tryPlayMusic();
+    } else {
+      userPausedMusic = true;
+      bgMusic.pause();
+    }
+  });
+}
+
+if (btnColorToggle) {
+  btnColorToggle.addEventListener('click', () => {
+    currentHeartTheme = currentHeartTheme === 'cyan' ? 'pink' : 'cyan';
+    const isPink = currentHeartTheme === 'pink';
+    btnColorToggle.dataset.theme = currentHeartTheme;
+    btnColorToggle.classList.toggle('is-pink', isPink);
+    btnColorToggle.setAttribute('aria-pressed', String(isPink));
+    btnColorToggle.title = isPink ? 'Đổi màu trái tim sang Xanh' : 'Đổi màu trái tim sang Hồng';
+    if (colorBtnLabel) {
+      colorBtnLabel.textContent = isPink ? 'Hồng' : 'Xanh';
+    }
+    if (appShell) {
+      appShell.classList.toggle('is-pink', isPink);
+    }
+    heartScene.setHeartTheme(currentHeartTheme);
+  });
+}
 
 const heartScene = new HeartScene(canvas, CDRAMA_IDOLS, {
   onHeartClick: () => {
+    if (!userPausedMusic) {
+      tryPlayMusic();
+    }
     clearTimeout(galleryOpenTimer);
     galleryOpenTimer = setTimeout(() => {
       openGallery();

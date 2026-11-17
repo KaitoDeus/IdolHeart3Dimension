@@ -15,6 +15,7 @@ const mockSceneInstance = {
       force !== null && force !== undefined ? force : !mockSceneInstance.cardsRevealed;
     sceneCallbacks?.onCardsVisibilityChange?.(mockSceneInstance.cardsRevealed);
   }),
+  setHeartTheme: vi.fn(),
   triggerHeartCelebration: vi.fn(() => {
     mockSceneInstance.toggle3DCards(true);
   }),
@@ -39,6 +40,23 @@ describe('UI Interactions, Click Events, Filters & Lightbox', () => {
     document.open();
     document.write(html);
     document.close();
+
+    // Stub HTMLMediaElement playback in jsdom and simulate paused initially
+    const audio = document.getElementById('bg-music');
+    let isPaused = true;
+    Object.defineProperty(audio, 'paused', {
+      configurable: true,
+      get: () => isPaused
+    });
+    audio.play = vi.fn(() => {
+      isPaused = false;
+      audio.dispatchEvent(new Event('play'));
+      return Promise.resolve();
+    });
+    audio.pause = vi.fn(() => {
+      isPaused = true;
+      audio.dispatchEvent(new Event('pause'));
+    });
 
     await import('../src/main.js');
   });
@@ -104,5 +122,51 @@ describe('UI Interactions, Click Events, Filters & Lightbox', () => {
 
     document.getElementById('btn-reset-view').click();
     expect(mockSceneInstance.resetView).toHaveBeenCalledTimes(1);
+  });
+
+  it('toggles background music play/pause via #btn-music-toggle', () => {
+    const musicBtn = document.getElementById('btn-music-toggle');
+    const label = document.getElementById('music-btn-label');
+    const audio = document.getElementById('bg-music');
+
+    // Note: main.js tries gentle autoplay on load, so stubbed audio starts playing
+    expect(audio.paused).toBe(false);
+    expect(musicBtn.classList.contains('is-playing')).toBe(true);
+    expect(label.textContent).toBe('Tạm dừng');
+
+    musicBtn.click();
+    expect(audio.paused).toBe(true);
+    expect(musicBtn.classList.contains('is-playing')).toBe(false);
+    expect(musicBtn.getAttribute('aria-pressed')).toBe('false');
+    expect(label.textContent).toBe('Phát nhạc');
+
+    musicBtn.click();
+    expect(audio.paused).toBe(false);
+    expect(musicBtn.classList.contains('is-playing')).toBe(true);
+    expect(musicBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(label.textContent).toBe('Tạm dừng');
+  });
+
+  it('switches heart color theme between cyan (Xanh) and pink (Hồng)', () => {
+    const colorBtn = document.getElementById('btn-color-toggle');
+    const colorLabel = document.getElementById('color-btn-label');
+    const appShell = document.getElementById('app');
+
+    expect(colorBtn.dataset.theme).toBe('cyan');
+    expect(colorLabel.textContent).toBe('Xanh');
+
+    colorBtn.click();
+    expect(mockSceneInstance.setHeartTheme).toHaveBeenCalledWith('pink');
+    expect(colorBtn.dataset.theme).toBe('pink');
+    expect(colorBtn.classList.contains('is-pink')).toBe(true);
+    expect(appShell.classList.contains('is-pink')).toBe(true);
+    expect(colorLabel.textContent).toBe('Hồng');
+
+    colorBtn.click();
+    expect(mockSceneInstance.setHeartTheme).toHaveBeenCalledWith('cyan');
+    expect(colorBtn.dataset.theme).toBe('cyan');
+    expect(colorBtn.classList.contains('is-pink')).toBe(false);
+    expect(appShell.classList.contains('is-pink')).toBe(false);
+    expect(colorLabel.textContent).toBe('Xanh');
   });
 });

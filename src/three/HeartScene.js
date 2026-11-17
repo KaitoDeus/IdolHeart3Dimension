@@ -7,8 +7,10 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import {
   createTaubinHeartGeometry,
-  createHeartAuraAttributes,
-  createHeartDrawFilaments,
+  createVolumetricHeartParticles,
+  createVortexPoolAttributes,
+  createVortexArcsGeometry,
+  createFountainStreakCurves,
   createCosmicHighlightStarTexture,
   createTwinkleStarTexture,
   createGlowSpriteTexture,
@@ -55,17 +57,37 @@ export class HeartScene {
     // Smooth camera/position reset tween state
     this.resetTween = null;
 
-    // Heart pulse & first-load drawing animation state
+    // Heart assembly, fountain wave, color theme & click burst state
     this.clickImpulse = 0;
+    this.hoverLerp = 0;
     this.burstPool = [];
-    this.introProgress = 0; // 0 -> 1 on initial page load
-    this.introDuration = 3.4; // seconds to draw complete 3D heart
+    this.heartTheme = 'cyan'; // 'cyan' | 'pink'
+    this.themeMix = 0; // 0 = cyan, 1 = pink
+    this.themeTarget = 0;
+    this._bgCyan = new THREE.Color('#060813');
+    this._bgPink = new THREE.Color('#11040c');
+    this._lightCyan = new THREE.Color('#38bdf8');
+    this._lightPink = new THREE.Color('#ff3b7a');
+    this._starCoreCyan = new THREE.Color('#e0f7ff');
+    this._starCorePink = new THREE.Color('#fff5e6');
+    this._starHaloCyan = new THREE.Color('#c4b5fd');
+    this._starHaloPink = new THREE.Color('#fda4af');
+
+    this.introProgress = 0;
+    this.introDuration = 3.5; // Initial draw-in & particle assembly from vortex
     this.introCompleted = false;
-    this.introCleftBurstFired = false;
+
+    // Rhythmic video-inspired fountain wave cycle (erupts from vortex into heart)
+    this.waveActive = true;
+    this.waveProgress = 0;
+    this.waveDuration = 4.2;
+    this.waveCooldown = 4.6;
+    this.idleSinceWave = 0;
 
     this._initScene();
     this._initLightsAndEnv();
-    this._initHeart();
+    this._initTextures();
+    this._initHeartAssembly();
     this._initStarfield();
     this._initBurstSystem();
     this._initIdolCards();
@@ -79,14 +101,14 @@ export class HeartScene {
 
   _initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#09030a');
-    this.scene.fog = new THREE.FogExp2('#09030a', 0.032);
+    this.scene.background = new THREE.Color('#060813');
+    this.scene.fog = new THREE.FogExp2('#060813', 0.026);
 
     const width = this.canvas.clientWidth || window.innerWidth;
     const height = this.canvas.clientHeight || window.innerHeight;
 
-    this.camera = new THREE.PerspectiveCamera(44, width / height, 0.1, 80);
-    this.camera.position.set(0, 0.25, 5.1);
+    this.camera = new THREE.PerspectiveCamera(44, width / height, 0.1, 85);
+    this.camera.position.set(0, 0.05, 5.4);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
@@ -97,7 +119,7 @@ export class HeartScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(width, height, false);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMappingExposure = 1.1;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
   }
 
@@ -106,278 +128,432 @@ export class HeartScene {
     const roomEnv = new RoomEnvironment();
     this.envRenderTarget = pmrem.fromScene(roomEnv, 0.04);
     this.scene.environment = this.envRenderTarget.texture;
-    this.scene.environmentIntensity = 0.65;
+    this.scene.environmentIntensity = 0.55;
     roomEnv.dispose();
     pmrem.dispose();
 
-    const ambient = new THREE.AmbientLight('#ffdce8', 0.45);
+    const ambient = new THREE.AmbientLight('#dceeff', 0.55);
     this.scene.add(ambient);
 
-    const keyLight = new THREE.DirectionalLight('#fff0f5', 2.4);
+    const keyLight = new THREE.DirectionalLight('#e0f2fe', 1.9);
     keyLight.position.set(3.5, 4.5, 4.2);
     this.scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight('#ff2e7a', 2.6);
+    const rimLight = new THREE.DirectionalLight('#a855f7', 1.6);
     rimLight.position.set(-4.0, -1.8, -3.5);
     this.scene.add(rimLight);
 
-    const violetFill = new THREE.DirectionalLight('#a855f7', 1.25);
-    violetFill.position.set(-3.2, 3.0, 2.2);
-    this.scene.add(violetFill);
-
-    this.innerLight = new THREE.PointLight('#ff4d79', 3.5, 7.0, 1.6);
-    this.innerLight.position.set(0, 0, 0.2);
+    this.innerLight = new THREE.PointLight('#38bdf8', 2.8, 7.5, 1.5);
+    this.innerLight.position.set(0, -0.3, 0.2);
     this.scene.add(this.innerLight);
   }
 
-  _initHeart() {
+  _initTextures() {
+    this.glowTex = createGlowSpriteTexture();
+    this.twinkleStarTex = createTwinkleStarTexture();
+    this.highlightStarTex = createCosmicHighlightStarTexture();
+    this.miniHeartTex = createMiniHeartTexture();
+  }
+
+  _initHeartAssembly() {
     this.heartGroup = new THREE.Group();
+    this.heartGroup.position.set(0, 0.15, 0);
     this.scene.add(this.heartGroup);
 
-    const heartGeo = createTaubinHeartGeometry({
-      detail: 22,
-      scale: [1.15, 1.12, 1.2]
+    const heartScale = [1.18, 1.14, 1.18];
+    const vortexY = -1.58;
+
+    // 1) Invisible exact Taubin heart mesh for crisp raycast click & drag hit-testing
+    const hitGeo = createTaubinHeartGeometry({ detail: 14, scale: heartScale });
+    const hitMat = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthWrite: false
     });
-
-    this.heartDrawUniforms = {
-      uIntroDraw: { value: 0 },
-      uIntroTime: { value: 0 }
-    };
-
-    this.heartMaterial = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color('#e11d48'),
-      emissive: new THREE.Color('#500724'),
-      emissiveIntensity: 0.42,
-      metalness: 0.06,
-      roughness: 0.14,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.08,
-      iridescence: 0.45,
-      iridescenceIOR: 1.32,
-      sheen: 0.75,
-      sheenRoughness: 0.3,
-      sheenColor: new THREE.Color('#fda4af'),
-      reflectivity: 0.95,
-      side: THREE.DoubleSide
-    });
-
-    this.heartMaterial.onBeforeCompile = (shader) => {
-      shader.uniforms.uIntroDraw = this.heartDrawUniforms.uIntroDraw;
-      shader.uniforms.uIntroTime = this.heartDrawUniforms.uIntroTime;
-
-      shader.vertexShader = shader.vertexShader
-        .replace(
-          '#include <common>',
-          `#include <common>
-           varying vec3 vHeartLocalPos;`
-        )
-        .replace(
-          '#include <begin_vertex>',
-          `#include <begin_vertex>
-           vHeartLocalPos = position;`
-        );
-
-      shader.fragmentShader = shader.fragmentShader
-        .replace(
-          '#include <common>',
-          `#include <common>
-           uniform float uIntroDraw;
-           uniform float uIntroTime;
-           varying vec3 vHeartLocalPos;`
-        )
-        .replace(
-          '#include <clipping_planes_fragment>',
-          `#include <clipping_planes_fragment>
-           float heartNormY = clamp((vHeartLocalPos.y + 1.28) / 2.60, 0.0, 1.0);
-           float heartAngle = atan(vHeartLocalPos.z, vHeartLocalPos.x);
-           float swirlWave = 0.055 * sin(heartAngle * 3.0 + heartNormY * 6.0 - uIntroTime * 4.5);
-           float revealThreshold = uIntroDraw * 1.18 - 0.09;
-           float introFrontier = revealThreshold - (heartNormY + swirlWave);
-           if (uIntroDraw < 0.999 && introFrontier < 0.0) {
-             discard;
-           }`
-        )
-        .replace(
-          '#include <emissivemap_fragment>',
-          `#include <emissivemap_fragment>
-           if (uIntroDraw < 0.999) {
-             float edgeGlow = (1.0 - smoothstep(0.0, 0.11, introFrontier)) * step(0.0, introFrontier);
-             float fadeOut = 1.0 - smoothstep(0.90, 1.0, uIntroDraw);
-             vec3 drawSparkColor = mix(vec3(1.0, 0.25, 0.55), vec3(1.0, 0.94, 0.76), edgeGlow);
-             totalEmissiveRadiance += drawSparkColor * edgeGlow * 3.4 * fadeOut;
-           }`
-        );
-    };
-
-    this.heartMesh = new THREE.Mesh(heartGeo, this.heartMaterial);
-    this.heartMesh.name = 'MainHeart';
+    this.heartMesh = new THREE.Mesh(hitGeo, hitMat);
+    this.heartMesh.name = 'MainHeartCollider';
     this.heartGroup.add(this.heartMesh);
 
-    // Progressive wireframe constellation lattice leading ahead of solid crystal fill
-    const veilGeo = createTaubinHeartGeometry({
-      detail: 8,
-      scale: [1.168, 1.138, 1.218]
-    });
-    this.veilMaterial = new THREE.ShaderMaterial({
-      wireframe: true,
+    // 2) Subtle translucent inner nebula heart silhouette for volumetric depth
+    const coreGeo = createTaubinHeartGeometry({ detail: 14, scale: [1.06, 1.03, 1.06] });
+    this.coreGlowMaterial = new THREE.ShaderMaterial({
       transparent: true,
-      blending: THREE.AdditiveBlending,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
       uniforms: {
-        uVeilDraw: { value: 0 },
-        uOpacity: { value: 0.045 },
-        uTime: { value: 0 }
+        uReveal: { value: 0 },
+        uPulse: { value: 0 },
+        uTime: { value: 0 },
+        uThemeMix: { value: 0 }
       },
       vertexShader: `
+        varying vec3 vNormalView;
+        varying vec3 vViewPos;
         varying vec3 vLocalPos;
         void main() {
           vLocalPos = position;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          vViewPos = -mv.xyz;
+          vNormalView = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * mv;
         }
       `,
       fragmentShader: `
-        uniform float uVeilDraw;
-        uniform float uOpacity;
-        uniform float uTime;
+        uniform float uReveal;
+        uniform float uPulse;
+        uniform float uThemeMix;
+        varying vec3 vNormalView;
+        varying vec3 vViewPos;
         varying vec3 vLocalPos;
         void main() {
-          float normY = clamp((vLocalPos.y + 1.28) / 2.60, 0.0, 1.0);
-          float threshold = uVeilDraw * 1.18 - 0.08;
-          if (uVeilDraw < 0.999 && normY > threshold) discard;
-
-          float frontier = threshold - normY;
-          float drawHighlight = (uVeilDraw < 0.999)
-            ? (1.0 - smoothstep(0.0, 0.16, frontier)) * step(0.0, frontier) * 0.45
-            : 0.0;
-          vec3 col = mix(vec3(0.99, 0.64, 0.69), vec3(1.0, 0.92, 0.72), drawHighlight * 2.0);
-          float alpha = uOpacity + drawHighlight * (1.0 - smoothstep(0.9, 1.0, uVeilDraw));
+          vec3 V = normalize(vViewPos);
+          vec3 N = normalize(vNormalView);
+          float fresnel = pow(1.0 - abs(dot(N, V)), 2.2);
+          float leftMix = clamp((-vLocalPos.x + 0.8) / 1.8, 0.0, 1.0);
+          vec3 cyanCol = mix(vec3(0.22, 0.78, 0.98), vec3(0.68, 0.54, 0.98), leftMix * 0.75);
+          vec3 pinkCol = mix(vec3(0.95, 0.16, 0.44), vec3(0.99, 0.64, 0.72), leftMix * 0.75);
+          vec3 col = mix(cyanCol, pinkCol, uThemeMix);
+          float alpha = (0.045 + fresnel * 0.10 + uPulse * 0.08) * uReveal;
           gl_FragColor = vec4(col, alpha);
         }
       `
     });
-    this.veilMesh = new THREE.Mesh(veilGeo, this.veilMaterial);
-    this.heartGroup.add(this.veilMesh);
+    this.coreGlowMesh = new THREE.Mesh(coreGeo, this.coreGlowMaterial);
+    this.heartGroup.add(this.coreGlowMesh);
 
-    // 3D sketch filaments & comet sparks that trace out the heart on first load
-    const { geometry: sketchGeo, heroCurves } = createHeartDrawFilaments([1.15, 1.12, 1.2]);
-    this.heroCurves = heroCurves;
-    this.sketchMaterial = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      uniforms: {
-        uDrawProgress: { value: 0 },
-        uFadeOut: { value: 1.0 }
-      },
-      vertexShader: `
-        attribute float aProgress;
-        attribute float aHero;
-        varying float vProgress;
-        varying float vHero;
-        void main() {
-          vProgress = aProgress;
-          vHero = aHero;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform float uDrawProgress;
-        uniform float uFadeOut;
-        varying float vProgress;
-        varying float vHero;
-        void main() {
-          if (vProgress > uDrawProgress || uFadeOut <= 0.005) discard;
-          float dist = uDrawProgress - vProgress;
-          float headGlow = 1.0 - smoothstep(0.0, 0.11, dist);
-          float trail = 1.0 - smoothstep(0.0, 0.55, dist);
-          vec3 col = mix(vec3(1.0, 0.36, 0.62), vec3(1.0, 0.94, 0.78), headGlow);
-          float baseLine = vHero > 0.5 ? 0.24 : 0.08;
-          float alpha = (baseLine + trail * 0.55 + headGlow * 0.95) * uFadeOut;
-          gl_FragColor = vec4(col, alpha);
-        }
-      `
-    });
-    this.sketchLines = new THREE.LineSegments(sketchGeo, this.sketchMaterial);
-    this.heartGroup.add(this.sketchLines);
+    // 3) 5,400 volumetric stardust heart particles (ice-cyan + lavender-violet + diamond sparkles)
+    const { positions, vortexPositions, seeds, sizes, colorMix } =
+      createVolumetricHeartParticles(5400, heartScale, vortexY);
 
-    // Leading starlight sparks riding the left & right heart outline curves
-    this.highlightStarTex = createCosmicHighlightStarTexture();
-    this.heroSparks = heroCurves.map(() => {
-      const mat = new THREE.SpriteMaterial({
-        map: this.highlightStarTex,
-        color: '#fff4d6',
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      });
-      const sprite = new THREE.Sprite(mat);
-      sprite.scale.setScalar(0.52);
-      this.heartGroup.add(sprite);
-      return sprite;
-    });
+    const particleGeo = new THREE.BufferGeometry();
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    particleGeo.setAttribute('aVortex', new THREE.BufferAttribute(vortexPositions, 3));
+    particleGeo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
+    particleGeo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+    particleGeo.setAttribute('aColorMix', new THREE.BufferAttribute(colorMix, 1));
 
-    // Luminous particle aura around the heart
-    const { positions, seeds, sizes } = createHeartAuraAttributes(1450, [1.2, 1.17, 1.24]);
-    const auraGeo = new THREE.BufferGeometry();
-    auraGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    auraGeo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
-    auraGeo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
-
-    this.glowTex = createGlowSpriteTexture();
-    this.auraMaterial = new THREE.ShaderMaterial({
+    this.heartParticlesMaterial = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       uniforms: {
         uTime: { value: 0 },
+        uAssemble: { value: 0 },
+        uWave: { value: 0 },
         uImpulse: { value: 0 },
-        uAuraReveal: { value: 0 },
+        uHeartScale: { value: 1.0 },
+        uThemeMix: { value: 0 },
         uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
-        uMap: { value: this.glowTex }
+        uMap: { value: this.twinkleStarTex }
       },
       vertexShader: `
+        attribute vec3 aVortex;
         attribute float aSeed;
         attribute float aSize;
-        uniform float uTime;
-        uniform float uImpulse;
-        uniform float uAuraReveal;
-        uniform float uPixelRatio;
-        varying float vAlpha;
-        varying float vWarmth;
-        void main() {
-          vec3 pos = position;
-          float normY = clamp((pos.y + 1.35) / 2.75, 0.0, 1.0);
-          float revealed = smoothstep(normY - 0.06, normY + 0.08, uAuraReveal * 1.12);
+        attribute float aColorMix;
 
-          float wave = sin(uTime * 1.8 + aSeed * 6.2831);
-          float expand = 1.0 + wave * 0.025 + uImpulse * 0.22 * (0.4 + 0.6 * fract(aSeed));
-          pos *= expand;
-          pos.y += sin(uTime * 1.1 + aSeed * 10.0) * 0.035;
+        uniform float uTime;
+        uniform float uAssemble;
+        uniform float uWave;
+        uniform float uImpulse;
+        uniform float uHeartScale;
+        uniform float uPixelRatio;
+
+        varying float vAlpha;
+        varying float vColorMix;
+        varying float vBoost;
+
+        void main() {
+          // Staggered spiral ascent from bottom vortex pool into 3D heart
+          float normY = clamp((position.y + 1.25) / 2.55, 0.0, 1.0);
+          float delay = fract(aSeed * 3.17) * 0.42 + normY * 0.22;
+          float tLocal = clamp((uAssemble - delay) / 0.36, 0.0, 1.0);
+          float ease = tLocal * tLocal * (3.0 - 2.0 * tLocal);
+
+          vec3 basePos = mix(aVortex, position * uHeartScale, ease);
+
+          // Helical swirl during initial assembly
+          float swirlAng = (1.0 - ease) * (3.2 + aSeed * 2.8);
+          float cs = cos(swirlAng);
+          float sn = sin(swirlAng);
+          basePos.xz = mat2(cs, -sn, sn, cs) * basePos.xz;
+          basePos.y += sin(ease * 3.14159) * 0.22 * (0.4 + fract(aSeed * 5.0));
+
+          // Fountain eruption wave turbulence (inspired by reference video)
+          float waveEnv = sin(clamp(uWave, 0.0, 1.0) * 3.14159265);
+          float waveLocal = sin(clamp(uWave * 1.45 - normY * 0.35, 0.0, 1.0) * 3.14159265);
+          float turbPhase = uTime * 2.8 + aSeed * 24.0;
+          vec3 fountainOffset = vec3(
+            sin(turbPhase + position.y * 2.5) * 0.16 * (0.3 + normY),
+            waveLocal * (0.28 + fract(aSeed * 7.1) * 0.34),
+            cos(turbPhase * 0.85 + position.x * 2.2) * 0.15
+          ) * waveEnv;
+
+          // Subtle idle stardust shimmer
+          vec3 idleDrift = vec3(
+            sin(uTime * 1.2 + aSeed * 18.0) * 0.018,
+            cos(uTime * 1.5 + aSeed * 14.0) * 0.022,
+            sin(uTime * 1.1 + aSeed * 22.0) * 0.018
+          ) * ease;
+
+          // Click burst radial pop
+          vec3 dir = normalize(position + vec3(0.0001));
+          vec3 pos = basePos + fountainOffset + idleDrift + dir * uImpulse * 0.24 * (0.4 + aSeed);
 
           vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
           gl_Position = projectionMatrix * mvPosition;
-          gl_PointSize = aSize * (28.0 + uImpulse * 16.0) * uPixelRatio / max(1.0, -mvPosition.z);
-          vAlpha = (0.35 + 0.45 * (0.5 + 0.5 * sin(uTime * 2.4 + aSeed * 12.0))) * revealed;
-          vWarmth = fract(aSeed * 3.7);
+
+          float twinkle = 0.55 + 0.45 * sin(uTime * (2.2 + aSeed * 3.0) + aSeed * 19.0);
+          float sizeBoost = 1.0 + waveEnv * 0.45 + uImpulse * 0.55;
+          gl_PointSize = aSize * sizeBoost * (30.0 + twinkle * 12.0) * uPixelRatio / max(1.0, -mvPosition.z);
+
+          vAlpha = (0.42 + 0.52 * twinkle) * smoothstep(0.0, 0.15, tLocal + 0.12);
+          vColorMix = aColorMix;
+          vBoost = clamp(waveEnv * 0.7 + uImpulse * 0.8 + (1.0 - ease) * 0.5, 0.0, 1.0);
         }
       `,
       fragmentShader: `
         uniform sampler2D uMap;
+        uniform float uThemeMix;
         varying float vAlpha;
-        varying float vWarmth;
+        varying float vColorMix;
+        varying float vBoost;
+
         void main() {
-          if (vAlpha <= 0.01) discard;
           vec4 tex = texture2D(uMap, gl_PointCoord);
-          vec3 rose = vec3(1.0, 0.42, 0.62);
-          vec3 gold = vec3(1.0, 0.84, 0.66);
-          vec3 col = mix(rose, gold, vWarmth);
-          gl_FragColor = vec4(col, tex.a * vAlpha);
+          if (tex.a < 0.02) discard;
+
+          vec3 iceCyan = vec3(0.32, 0.84, 1.0);
+          vec3 softLavender = vec3(0.76, 0.62, 1.0);
+          vec3 cyanTheme = mix(iceCyan, softLavender, vColorMix);
+
+          vec3 rubyRose = vec3(1.0, 0.24, 0.48);
+          vec3 sakuraPink = vec3(1.0, 0.66, 0.78);
+          vec3 pinkTheme = mix(rubyRose, sakuraPink, vColorMix);
+
+          vec3 baseCol = mix(cyanTheme, pinkTheme, uThemeMix);
+          vec3 highlightTint = mix(vec3(0.94, 0.98, 1.0), vec3(1.0, 0.93, 0.96), uThemeMix);
+          vec3 finalCol = mix(baseCol, highlightTint, vBoost * 0.65);
+
+          gl_FragColor = vec4(finalCol * tex.rgb, tex.a * vAlpha);
         }
       `
     });
 
-    this.auraPoints = new THREE.Points(auraGeo, this.auraMaterial);
-    this.heartGroup.add(this.auraPoints);
+    this.heartParticles = new THREE.Points(particleGeo, this.heartParticlesMaterial);
+    this.heartGroup.add(this.heartParticles);
+
+    // 4) Glowing cosmic vortex pool beneath the heart tip
+    const {
+      positions: vPos,
+      radii: vRad,
+      angles: vAng,
+      seeds: vSeeds,
+      sizes: vSizes
+    } = createVortexPoolAttributes(1500, vortexY);
+
+    const vortexGeo = new THREE.BufferGeometry();
+    vortexGeo.setAttribute('position', new THREE.BufferAttribute(vPos, 3));
+    vortexGeo.setAttribute('aRadius', new THREE.BufferAttribute(vRad, 1));
+    vortexGeo.setAttribute('aAngle', new THREE.BufferAttribute(vAng, 1));
+    vortexGeo.setAttribute('aSeed', new THREE.BufferAttribute(vSeeds, 1));
+    vortexGeo.setAttribute('aSize', new THREE.BufferAttribute(vSizes, 1));
+
+    this.vortexMaterial = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uTime: { value: 0 },
+        uEnergy: { value: 0 },
+        uThemeMix: { value: 0 },
+        uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
+        uMap: { value: this.twinkleStarTex }
+      },
+      vertexShader: `
+        attribute float aRadius;
+        attribute float aAngle;
+        attribute float aSeed;
+        attribute float aSize;
+
+        uniform float uTime;
+        uniform float uEnergy;
+        uniform float uPixelRatio;
+
+        varying float vAlpha;
+        varying float vCore;
+
+        void main() {
+          float spinSpeed = (1.15 / (0.35 + aRadius)) * (1.0 + uEnergy * 0.65);
+          float angle = aAngle + uTime * spinSpeed;
+          float r = aRadius * (1.0 + sin(uTime * 2.2 + aSeed * 12.0) * 0.04 + uEnergy * 0.08);
+
+          vec3 pos = vec3(
+            cos(angle) * r,
+            position.y + sin(angle * 3.0 + uTime * 2.5) * 0.02,
+            sin(angle) * r
+          );
+
+          vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          gl_PointSize = aSize * (28.0 + uEnergy * 14.0) * uPixelRatio / max(1.0, -mvPosition.z);
+
+          float radialFade = 1.0 - smoothstep(0.55, 1.48, r);
+          vCore = 1.0 - smoothstep(0.15, 0.95, r);
+          vAlpha = (0.38 + radialFade * 0.58) * (0.7 + 0.3 * sin(uTime * 3.0 + aSeed * 14.0));
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D uMap;
+        uniform float uThemeMix;
+        varying float vAlpha;
+        varying float vCore;
+
+        void main() {
+          vec4 tex = texture2D(uMap, gl_PointCoord);
+          vec3 outerCol = mix(vec3(0.22, 0.80, 1.0), vec3(0.98, 0.28, 0.54), uThemeMix);
+          vec3 coreCol = mix(vec3(0.88, 0.97, 1.0), vec3(1.0, 0.88, 0.93), uThemeMix);
+          vec3 col = mix(outerCol, coreCol, vCore);
+          gl_FragColor = vec4(col * tex.rgb, tex.a * vAlpha);
+        }
+      `
+    });
+    this.vortexPoints = new THREE.Points(vortexGeo, this.vortexMaterial);
+    this.heartGroup.add(this.vortexPoints);
+
+    // 5) Spinning crescent energy rings inside the vortex pool
+    const arcsGeo = createVortexArcsGeometry(vortexY);
+    this.vortexArcsMaterial = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uTime: { value: 0 },
+        uEnergy: { value: 0 },
+        uThemeMix: { value: 0 }
+      },
+      vertexShader: `
+        attribute float aProgress;
+        attribute float aSpeed;
+        uniform float uTime;
+        varying float vProgress;
+        void main() {
+          vProgress = aProgress;
+          float ang = uTime * aSpeed;
+          float c = cos(ang);
+          float s = sin(ang);
+          vec3 pos = position;
+          pos.xz = mat2(c, -s, s, c) * pos.xz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uEnergy;
+        uniform float uThemeMix;
+        varying float vProgress;
+        void main() {
+          float fade = sin(vProgress * 3.14159265);
+          vec3 edgeCol = mix(vec3(0.25, 0.84, 1.0), vec3(0.98, 0.34, 0.58), uThemeMix);
+          vec3 midCol = mix(vec3(0.92, 0.98, 1.0), vec3(1.0, 0.88, 0.94), uThemeMix);
+          vec3 col = mix(edgeCol, midCol, fade);
+          float alpha = fade * (0.45 + uEnergy * 0.45);
+          gl_FragColor = vec4(col, alpha);
+        }
+      `
+    });
+    this.vortexArcs = new THREE.LineSegments(arcsGeo, this.vortexArcsMaterial);
+    this.heartGroup.add(this.vortexArcs);
+
+    // 6) Upward sweeping fountain light streaks + leading sparks (video 00:01 -> 00:06)
+    const { geometry: streakGeo, curves } = createFountainStreakCurves(46, heartScale, vortexY);
+    this.fountainCurves = curves;
+
+    this.fountainMaterial = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uStreamPhase: { value: 0 },
+        uThemeMix: { value: 0 }
+      },
+      vertexShader: `
+        attribute float aProgress;
+        attribute float aSeed;
+        varying float vProgress;
+        varying float vSeed;
+        void main() {
+          vProgress = aProgress;
+          vSeed = aSeed;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uStreamPhase;
+        uniform float uThemeMix;
+        varying float vProgress;
+        varying float vSeed;
+        void main() {
+          if (uStreamPhase <= 0.001) discard;
+          float head = uStreamPhase * 1.28 - vSeed * 0.28;
+          float tailStart = head - 0.34;
+          if (vProgress > head || vProgress < tailStart) discard;
+
+          float seg = smoothstep(tailStart, head, vProgress);
+          float envelope = smoothstep(0.0, 0.14, uStreamPhase) * (1.0 - smoothstep(1.02, 1.35, uStreamPhase));
+          vec3 tailCol = mix(vec3(0.30, 0.85, 1.0), vec3(0.98, 0.32, 0.56), uThemeMix);
+          vec3 brightWhite = mix(vec3(0.92, 0.98, 1.0), vec3(1.0, 0.90, 0.95), uThemeMix);
+          vec3 col = mix(tailCol, brightWhite, seg);
+          float alpha = pow(seg, 1.35) * 0.88 * envelope;
+          gl_FragColor = vec4(col, alpha);
+        }
+      `
+    });
+    this.fountainLines = new THREE.LineSegments(streakGeo, this.fountainMaterial);
+    this.heartGroup.add(this.fountainLines);
+
+    // Leading spark particles riding the curved fountain trails
+    const sparkCount = curves.length * 3;
+    const sparkPos = new Float32Array(sparkCount * 3);
+    const sparkAlpha = new Float32Array(sparkCount);
+    const sparkGeo = new THREE.BufferGeometry();
+    sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+    sparkGeo.setAttribute('aAlpha', new THREE.BufferAttribute(sparkAlpha, 1));
+
+    this.fountainSparksMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uMap: { value: this.highlightStarTex },
+        uThemeMix: { value: 0 },
+        uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) }
+      },
+      vertexShader: `
+        attribute float aAlpha;
+        uniform float uPixelRatio;
+        varying float vAlpha;
+        void main() {
+          vAlpha = aAlpha;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+          gl_PointSize = (64.0 * aAlpha + 12.0) * uPixelRatio / max(1.0, -mvPosition.z);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D uMap;
+        uniform float uThemeMix;
+        varying float vAlpha;
+        void main() {
+          if (vAlpha <= 0.02) discard;
+          vec4 tex = texture2D(uMap, gl_PointCoord);
+          vec3 sparkTint = mix(vec3(0.76, 0.95, 1.0), vec3(1.0, 0.78, 0.88), uThemeMix);
+          gl_FragColor = vec4(sparkTint * tex.rgb, tex.a * vAlpha);
+        }
+      `
+    });
+    this.fountainSparks = new THREE.Points(sparkGeo, this.fountainSparksMat);
+    this.fountainSparks.frustumCulled = false;
+    this.heartGroup.add(this.fountainSparks);
   }
 
   _initStarfield() {
@@ -392,8 +568,8 @@ export class HeartScene {
       new THREE.Color('#ffffff'),
       new THREE.Color('#e0f2fe'),
       new THREE.Color('#fef08a'),
-      new THREE.Color('#fbcfe8'),
-      new THREE.Color('#ddd6fe')
+      new THREE.Color('#ddd6fe'),
+      new THREE.Color('#bae6fd')
     ];
 
     for (let i = 0; i < count; i++) {
@@ -420,7 +596,6 @@ export class HeartScene {
     starGeo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
     starGeo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
 
-    this.twinkleStarTex = createTwinkleStarTexture();
     this.starfieldMaterial = new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
@@ -471,8 +646,8 @@ export class HeartScene {
     const flareColors = [
       new THREE.Color('#fffbeb'),
       new THREE.Color('#e0f2fe'),
-      new THREE.Color('#fde68a'),
-      new THREE.Color('#ffe4e6')
+      new THREE.Color('#bae6fd'),
+      new THREE.Color('#ede9fe')
     ];
 
     for (let i = 0; i < highlightCount; i++) {
@@ -540,39 +715,38 @@ export class HeartScene {
     this.scene.add(this.highlightStars);
 
     // 3) Signature Hero Cosmic Highlight Star near the heart constellation
-    this.heroStarAnchor = new THREE.Vector3(1.82, 1.42, -0.75);
+    this.heroStarAnchor = new THREE.Vector3(1.85, 1.55, -0.75);
     this.heroStarGroup = new THREE.Group();
     this.heroStarGroup.position.copy(this.heroStarAnchor);
     this.scene.add(this.heroStarGroup);
 
     this.heroStarCoreMat = new THREE.SpriteMaterial({
       map: this.highlightStarTex,
-      color: '#fff7dc',
+      color: '#e0f7ff',
       transparent: true,
       opacity: 0.96,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
     this.heroStarCore = new THREE.Sprite(this.heroStarCoreMat);
-    this.heroStarCore.scale.setScalar(1.28);
+    this.heroStarCore.scale.setScalar(1.3);
     this.heroStarGroup.add(this.heroStarCore);
 
     this.heroStarHaloMat = new THREE.SpriteMaterial({
       map: this.highlightStarTex,
-      color: '#fda4af',
+      color: '#c4b5fd',
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.58,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       rotation: Math.PI / 4
     });
     this.heroStarHalo = new THREE.Sprite(this.heroStarHaloMat);
-    this.heroStarHalo.scale.setScalar(0.86);
+    this.heroStarHalo.scale.setScalar(0.88);
     this.heroStarGroup.add(this.heroStarHalo);
   }
 
   _initBurstSystem() {
-    this.miniHeartTex = createMiniHeartTexture();
     const maxParticles = 180;
     const positions = new Float32Array(maxParticles * 3);
     const alphas = new Float32Array(maxParticles);
@@ -670,12 +844,11 @@ export class HeartScene {
 
       this.cardHitMeshes.push(frontMesh, backMesh);
 
-      // Arrange in a balanced 2-ring orbital constellation around the heart
       const isInner = index < 6;
       const ringIndex = isInner ? index : index - 6;
       const ringCount = isInner ? 6 : total - 6;
       const baseAngle = (ringIndex / ringCount) * Math.PI * 2 + (isInner ? 0.25 : 0.0);
-      const radius = isInner ? 2.15 : 2.9;
+      const radius = isInner ? 2.25 : 3.0;
       const yOffset = isInner
         ? Math.sin(ringIndex * 2.1) * 0.42
         : Math.cos(ringIndex * 1.7) * 0.72;
@@ -697,7 +870,6 @@ export class HeartScene {
         hoverLerp: 0
       });
 
-      // Async load local portrait into CanvasTexture
       const img = new Image();
       img.onload = () => {
         if (this.isDisposed) return;
@@ -719,9 +891,9 @@ export class HeartScene {
 
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(width, height),
-      0.34, // strength
-      0.55, // radius
-      0.84 // threshold
+      0.52,
+      0.62,
+      0.72
     );
     this.composer.addPass(this.bloomPass);
 
@@ -736,10 +908,10 @@ export class HeartScene {
     this.controls.rotateSpeed = 0.82;
     this.controls.zoomSpeed = 0.85;
     this.controls.panSpeed = 0.75;
-    this.controls.minDistance = 2.4;
-    this.controls.maxDistance = 10.5;
+    this.controls.minDistance = 2.6;
+    this.controls.maxDistance = 11.5;
     this.controls.autoRotate = true;
-    this.controls.autoRotateSpeed = 0.85;
+    this.controls.autoRotateSpeed = 0.7;
   }
 
   _bindEvents() {
@@ -801,8 +973,6 @@ export class HeartScene {
 
     this._updatePointerNDC(e);
     const hit = this._pickTarget();
-
-    // Cancel reset tween if user starts interacting
     this.resetTween = null;
 
     if (this.mode === 'drag' && hit) {
@@ -848,9 +1018,8 @@ export class HeartScene {
         const intersectPt = new THREE.Vector3();
         if (this.raycaster.ray.intersectPlane(this.dragPlane, intersectPt)) {
           const nextPos = intersectPt.add(this.dragOffset);
-          // Clamp comfortably within visible space
           nextPos.x = THREE.MathUtils.clamp(nextPos.x, -4.2, 4.2);
-          nextPos.y = THREE.MathUtils.clamp(nextPos.y, -3.2, 3.2);
+          nextPos.y = THREE.MathUtils.clamp(nextPos.y, -2.6, 3.2);
           nextPos.z = THREE.MathUtils.clamp(nextPos.z, -3.5, 2.5);
 
           if (this.dragTarget === 'heart') {
@@ -858,7 +1027,6 @@ export class HeartScene {
             this.prevDragPos.copy(nextPos);
             this.heartGroup.position.copy(nextPos);
           } else {
-            // Card drag: store offset relative to current orbit anchor
             const cardItem = this.dragTarget;
             cardItem.isCustomPlaced = true;
             const delta = nextPos.clone().sub(cardItem.group.position);
@@ -870,7 +1038,6 @@ export class HeartScene {
       }
     }
 
-    // Hover feedback when not dragging
     if (!this.pointerDown) {
       const hit = this._pickTarget();
       this.isHoveringHeart = hit?.type === 'heart';
@@ -898,9 +1065,12 @@ export class HeartScene {
 
     this.pointerDown = false;
     this.pointerId = null;
-    this.canvas.style.cursor = this.isHoveringHeart || this.hoveredCard !== null
-      ? (this.mode === 'drag' ? 'grab' : 'pointer')
-      : 'grab';
+    this.canvas.style.cursor =
+      this.isHoveringHeart || this.hoveredCard !== null
+        ? this.mode === 'drag'
+          ? 'grab'
+          : 'pointer'
+        : 'grab';
 
     if (isClick) {
       this._updatePointerNDC(e);
@@ -915,12 +1085,20 @@ export class HeartScene {
     }
   }
 
+  triggerFountainWave() {
+    this.waveActive = true;
+    this.waveProgress = 0;
+    this.idleSinceWave = 0;
+  }
+
   triggerHeartCelebration(originPoint = null) {
     this.clickImpulse = 1.0;
+    this.triggerFountainWave();
+
     const burstOrigin = originPoint
       ? originPoint.clone()
       : this.heartGroup.position.clone();
-    this.triggerBurst(burstOrigin, 110);
+    this.triggerBurst(burstOrigin, 115);
 
     if (!this.cardsRevealed) {
       this.cardsRevealed = true;
@@ -968,6 +1146,12 @@ export class HeartScene {
     }
   }
 
+  setHeartTheme(theme) {
+    this.heartTheme = theme === 'pink' ? 'pink' : 'cyan';
+    this.themeTarget = this.heartTheme === 'pink' ? 1 : 0;
+    this.clickImpulse = Math.max(this.clickImpulse, 0.42);
+  }
+
   toggle3DCards(forceState = null) {
     this.cardsRevealed = forceState !== null ? forceState : !this.cardsRevealed;
     this.onCardsVisibilityChange(this.cardsRevealed);
@@ -981,7 +1165,7 @@ export class HeartScene {
       startTarget: this.controls.target.clone(),
       endTarget: new THREE.Vector3(0, 0, 0),
       startHeart: this.heartGroup.position.clone(),
-      endHeart: new THREE.Vector3(0, 0, 0),
+      endHeart: new THREE.Vector3(0, 0.15, 0),
       progress: 0
     };
 
@@ -998,17 +1182,13 @@ export class HeartScene {
     const aspect = width / Math.max(1, height);
 
     if (aspect < 0.65) {
-      // Narrow mobile portrait
-      return new THREE.Vector3(0, 0.2, 6.9);
+      return new THREE.Vector3(0, 0.05, 7.2);
     } else if (aspect < 0.9) {
-      // Large mobile / narrow tablet portrait
-      return new THREE.Vector3(0, 0.2, 6.1);
+      return new THREE.Vector3(0, 0.05, 6.4);
     } else if (aspect < 1.25) {
-      // Tablet landscape / square
-      return new THREE.Vector3(0, 0.22, 5.4);
+      return new THREE.Vector3(0, 0.08, 5.75);
     }
-    // Desktop wide
-    return new THREE.Vector3(0, 0.22, 4.95);
+    return new THREE.Vector3(0, 0.08, 5.25);
   }
 
   resize() {
@@ -1029,7 +1209,6 @@ export class HeartScene {
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
 
-    // On initial load or orientation switch, ensure heart isn't cropped
     if (!this.hasInitializedViewport) {
       this.hasInitializedViewport = true;
       this.camera.position.copy(this._getResponsiveCameraPos());
@@ -1041,8 +1220,14 @@ export class HeartScene {
     this.composer.setSize(width, height);
     this.bloomPass.setSize(width, height);
 
-    if (this.auraMaterial) {
-      this.auraMaterial.uniforms.uPixelRatio.value = dpr;
+    if (this.heartParticlesMaterial) {
+      this.heartParticlesMaterial.uniforms.uPixelRatio.value = dpr;
+    }
+    if (this.vortexMaterial) {
+      this.vortexMaterial.uniforms.uPixelRatio.value = dpr;
+    }
+    if (this.fountainSparksMat) {
+      this.fountainSparksMat.uniforms.uPixelRatio.value = dpr;
     }
     if (this.starfieldMaterial) {
       this.starfieldMaterial.uniforms.uPixelRatio.value = dpr;
@@ -1051,109 +1236,111 @@ export class HeartScene {
       this.highlightStarsMaterial.uniforms.uPixelRatio.value = dpr;
     }
     if (this.heroStarGroup) {
-      this.heroStarAnchor = aspect < 0.75
-        ? new THREE.Vector3(1.18, 1.56, -0.75)
-        : new THREE.Vector3(1.82, 1.42, -0.75);
+      this.heroStarAnchor =
+        aspect < 0.75
+          ? new THREE.Vector3(1.18, 1.62, -0.75)
+          : new THREE.Vector3(1.85, 1.55, -0.75);
       this.heroStarGroup.position.copy(this.heroStarAnchor);
     }
   }
 
-  _updateIntro(dt, elapsed) {
-    if (this.introCompleted) return;
-
-    this.introProgress = Math.min(1, this.introProgress + dt / this.introDuration);
-    const p = this.introProgress;
-    // Smooth easeInOutSine
-    const eased = 0.5 - 0.5 * Math.cos(p * Math.PI);
-
-    const sketchDraw = THREE.MathUtils.clamp(eased / 0.80, 0, 1);
-    const sketchFade = 1.0 - THREE.MathUtils.smoothstep(eased, 0.78, 1.0);
-    const veilDraw = THREE.MathUtils.smoothstep(eased, 0.06, 0.84);
-    const solidDraw = THREE.MathUtils.smoothstep(eased, 0.16, 0.96);
-    const auraReveal = THREE.MathUtils.smoothstep(eased, 0.20, 0.98);
-
-    this.heartDrawUniforms.uIntroDraw.value = solidDraw;
-    this.heartDrawUniforms.uIntroTime.value = elapsed;
-
-    this.veilMaterial.uniforms.uVeilDraw.value = veilDraw;
-    this.veilMaterial.uniforms.uTime.value = elapsed;
-
-    this.sketchMaterial.uniforms.uDrawProgress.value = sketchDraw;
-    this.sketchMaterial.uniforms.uFadeOut.value = sketchFade;
-
-    this.auraMaterial.uniforms.uAuraReveal.value = auraReveal;
-
-    // Advance racing starlight comet sparks along left & right hero silhouette curves
-    for (let i = 0; i < this.heroSparks.length; i++) {
-      const pts = this.heroCurves[i];
-      const spark = this.heroSparks[i];
-      const fIdx = sketchDraw * (pts.length - 1);
-      const i0 = Math.floor(fIdx);
-      const i1 = Math.min(pts.length - 1, i0 + 1);
-      const frac = fIdx - i0;
-
-      spark.position.lerpVectors(pts[i0], pts[i1], frac).multiplyScalar(this.heartMesh.scale.x);
-      const sparkPulse = 0.42 + 0.16 * Math.sin(elapsed * 16 + i);
-      const sparkScale = sparkPulse * sketchFade;
-      spark.scale.setScalar(Math.max(0.001, sparkScale));
-      spark.material.opacity = sketchFade;
-      spark.material.rotation = elapsed * 2.4 * (i === 0 ? 1 : -1);
-    }
-
-    // Celebratory sparkle flash when the two strokes converge at the top cleft
-    if (!this.introCleftBurstFired && sketchDraw >= 0.985) {
-      this.introCleftBurstFired = true;
-      this.clickImpulse = 0.48;
-      const cleftWorld = new THREE.Vector3(0, 0.95, 0).applyMatrix4(this.heartGroup.matrixWorld);
-      this.triggerBurst(cleftWorld, 65);
-    }
-
-    if (this.introProgress >= 1.0) {
-      this.introCompleted = true;
-      this.heartDrawUniforms.uIntroDraw.value = 1.0;
-      this.veilMaterial.uniforms.uVeilDraw.value = 1.0;
-      this.auraMaterial.uniforms.uAuraReveal.value = 1.0;
-      this.heartMaterial.side = THREE.FrontSide;
-      this.sketchLines.visible = false;
-      for (const spark of this.heroSparks) {
-        spark.visible = false;
+  _updateHeartAndVortex(dt, elapsed) {
+    // 1) Initial load assembly (particles spiral up from vortex to build complete heart)
+    if (!this.introCompleted) {
+      this.introProgress = Math.min(1, this.introProgress + dt / this.introDuration);
+      if (this.introProgress >= 1) {
+        this.introCompleted = true;
       }
     }
-  }
+    const assembleEased = 0.5 - 0.5 * Math.cos(this.introProgress * Math.PI);
 
-  _updateHeart(dt, elapsed) {
-    // Organic double-lub-dub heartbeat (ramps in smoothly once heart completes drawing)
+    // 2) Periodic video-inspired fountain eruption cycle
+    if (this.waveActive) {
+      this.waveProgress += dt / this.waveDuration;
+      if (this.waveProgress >= 1.05) {
+        this.waveActive = false;
+        this.waveProgress = 0;
+        this.idleSinceWave = 0;
+      }
+    } else if (this.introCompleted) {
+      this.idleSinceWave += dt;
+      if (this.idleSinceWave >= this.waveCooldown) {
+        this.triggerFountainWave();
+      }
+    }
+
+    const waveNorm = this.waveActive ? THREE.MathUtils.clamp(this.waveProgress, 0, 1) : 0;
+    const waveEnergy = Math.sin(waveNorm * Math.PI);
+
+    // Organic double-lub-dub heartbeat
     const beatWeight = this.introCompleted
       ? 1.0
       : THREE.MathUtils.smoothstep(this.introProgress, 0.72, 1.0);
-    const cycle = (elapsed * 1.12) % 1.0;
+    const cycle = (elapsed * 1.05) % 1.0;
     const beat1 = Math.exp(-Math.pow((cycle - 0.14) * 14.0, 2));
     const beat2 = Math.exp(-Math.pow((cycle - 0.30) * 16.0, 2)) * 0.65;
     const lubDub = (beat1 + beat2) * beatWeight;
 
     this.clickImpulse = Math.max(0, this.clickImpulse - dt * 1.45);
+    this.hoverLerp = THREE.MathUtils.lerp(
+      this.hoverLerp,
+      this.isHoveringHeart ? 1 : 0,
+      Math.min(1, dt * 8)
+    );
 
-    const hoverBoost = this.isHoveringHeart ? 0.045 : 0;
     const dragBoost = this.dragTarget === 'heart' ? 0.06 : 0;
-    const targetScale = 1.0 + lubDub * 0.042 + this.clickImpulse * 0.14 + hoverBoost + dragBoost;
+    const heartScale =
+      1.0 + lubDub * 0.038 + this.clickImpulse * 0.11 + this.hoverLerp * 0.045 + dragBoost;
 
-    const currentScale = this.heartMesh.scale.x;
-    const nextScale = THREE.MathUtils.lerp(currentScale, targetScale, Math.min(1, dt * 14));
-    this.heartMesh.scale.setScalar(nextScale);
-    this.veilMesh.scale.setScalar(nextScale * 1.006);
-    if (this.sketchLines.visible) {
-      this.sketchLines.scale.setScalar(nextScale);
-    }
+    this.themeMix = THREE.MathUtils.lerp(this.themeMix, this.themeTarget, Math.min(1, dt * 4.5));
 
-    // Subtle emissive & inner light pulse
-    this.heartMaterial.emissiveIntensity =
-      0.38 + lubDub * 0.25 + this.clickImpulse * 0.8 + (this.isHoveringHeart ? 0.16 : 0);
-    this.veilMaterial.uniforms.uOpacity.value =
-      0.038 + lubDub * 0.035 + this.clickImpulse * 0.14;
-    this.innerLight.intensity =
-      (2.4 + 0.9 * this.introProgress) + lubDub * 1.6 + this.clickImpulse * 5.0;
+    this.heartParticlesMaterial.uniforms.uTime.value = elapsed;
+    this.heartParticlesMaterial.uniforms.uAssemble.value = assembleEased;
+    this.heartParticlesMaterial.uniforms.uWave.value = waveNorm;
+    this.heartParticlesMaterial.uniforms.uImpulse.value = this.clickImpulse;
+    this.heartParticlesMaterial.uniforms.uHeartScale.value = heartScale;
+    this.heartParticlesMaterial.uniforms.uThemeMix.value = this.themeMix;
+
+    this.coreGlowMaterial.uniforms.uReveal.value = THREE.MathUtils.smoothstep(
+      this.introProgress,
+      0.35,
+      1.0
+    );
+    this.coreGlowMaterial.uniforms.uPulse.value =
+      lubDub * 0.4 + waveEnergy * 0.6 + this.clickImpulse;
+    this.coreGlowMaterial.uniforms.uTime.value = elapsed;
+    this.coreGlowMaterial.uniforms.uThemeMix.value = this.themeMix;
+    this.coreGlowMesh.scale.setScalar(heartScale);
+
+    // Vortex pool & crescent energy rings
+    const totalEnergy = Math.min(1.5, waveEnergy * 0.9 + this.clickImpulse + (1 - assembleEased) * 0.7);
+    this.vortexMaterial.uniforms.uTime.value = elapsed;
+    this.vortexMaterial.uniforms.uEnergy.value = totalEnergy;
+    this.vortexMaterial.uniforms.uThemeMix.value = this.themeMix;
+    this.vortexArcsMaterial.uniforms.uTime.value = elapsed;
+    this.vortexArcsMaterial.uniforms.uEnergy.value = totalEnergy;
+    this.vortexArcsMaterial.uniforms.uThemeMix.value = this.themeMix;
+
+    // Fountain light streaks & leading sparks
+    const streamPhase = this.waveActive
+      ? this.waveProgress * 1.35
+      : !this.introCompleted
+        ? this.introProgress * 1.35
+        : 0;
+    this.fountainMaterial.uniforms.uStreamPhase.value = streamPhase;
+    this.fountainMaterial.uniforms.uThemeMix.value = this.themeMix;
+    this.fountainSparksMat.uniforms.uThemeMix.value = this.themeMix;
+    this._updateFountainSparks(streamPhase, elapsed);
+
+    this.scene.background.lerpColors(this._bgCyan, this._bgPink, this.themeMix);
+    this.scene.fog.color.copy(this.scene.background);
+    this.innerLight.color.lerpColors(this._lightCyan, this._lightPink, this.themeMix);
+    this.heroStarCoreMat.color.lerpColors(this._starCoreCyan, this._starCorePink, this.themeMix);
+    this.heroStarHaloMat.color.lerpColors(this._starHaloCyan, this._starHaloPink, this.themeMix);
+
+    this.innerLight.intensity = 2.4 + lubDub * 1.2 + waveEnergy * 2.4 + this.clickImpulse * 4.0;
     this.innerLight.position.copy(this.heartGroup.position);
-    this.bloomPass.strength = 0.34 + this.clickImpulse * 0.28 + (1.0 - this.introProgress) * 0.14;
+    this.bloomPass.strength = 0.48 + waveEnergy * 0.22 + this.clickImpulse * 0.26;
 
     // Tactile inertia/tilt when dragged freely
     if (this.dragTarget === 'heart') {
@@ -1168,16 +1355,58 @@ export class HeartScene {
         dt * 10
       );
     } else {
-      // Gentle floating sway
-      const targetRotY = Math.sin(elapsed * 0.55) * 0.14;
-      const targetRotZ = Math.sin(elapsed * 0.4) * 0.04;
+      const targetRotY = Math.sin(elapsed * 0.48) * 0.16;
+      const targetRotZ = Math.sin(elapsed * 0.35) * 0.03;
       this.heartGroup.rotation.x = THREE.MathUtils.lerp(this.heartGroup.rotation.x, 0, dt * 5);
       this.heartGroup.rotation.y = THREE.MathUtils.lerp(this.heartGroup.rotation.y, targetRotY, dt * 3);
       this.heartGroup.rotation.z = THREE.MathUtils.lerp(this.heartGroup.rotation.z, targetRotZ, dt * 4);
     }
+  }
 
-    this.auraMaterial.uniforms.uTime.value = elapsed;
-    this.auraMaterial.uniforms.uImpulse.value = this.clickImpulse + lubDub * 0.22;
+  _updateFountainSparks(streamPhase, elapsed) {
+    const posAttr = this.fountainSparks.geometry.getAttribute('position');
+    const alphaAttr = this.fountainSparks.geometry.getAttribute('aAlpha');
+
+    if (streamPhase <= 0.005 || streamPhase >= 1.35) {
+      for (let i = 0; i < alphaAttr.count; i++) {
+        alphaAttr.setX(i, 0);
+      }
+      alphaAttr.needsUpdate = true;
+      return;
+    }
+
+    const fadeEnv =
+      THREE.MathUtils.smoothstep(streamPhase, 0.0, 0.14) *
+      (1.0 - THREE.MathUtils.smoothstep(streamPhase, 1.02, 1.35));
+
+    const numCurves = this.fountainCurves.length;
+    for (let i = 0; i < alphaAttr.count; i++) {
+      const curveObj = this.fountainCurves[i % numCurves];
+      const subOffset = Math.floor(i / numCurves) * 0.09;
+      const head = streamPhase * 1.28 - curveObj.seed * 0.28 - subOffset;
+
+      if (head <= 0.01 || head >= 1.0) {
+        alphaAttr.setX(i, 0);
+        continue;
+      }
+
+      const pts = curveObj.points;
+      const fIdx = head * (pts.length - 1);
+      const i0 = Math.floor(fIdx);
+      const i1 = Math.min(pts.length - 1, i0 + 1);
+      const frac = fIdx - i0;
+
+      const x = THREE.MathUtils.lerp(pts[i0].x, pts[i1].x, frac);
+      const y = THREE.MathUtils.lerp(pts[i0].y, pts[i1].y, frac);
+      const z = THREE.MathUtils.lerp(pts[i0].z, pts[i1].z, frac);
+
+      const jitter = 0.03 * Math.sin(elapsed * 14.0 + i * 2.1);
+      posAttr.setXYZ(i, x + jitter, y, z - jitter);
+      alphaAttr.setX(i, (1.0 - subOffset * 5.0) * fadeEnv);
+    }
+
+    posAttr.needsUpdate = true;
+    alphaAttr.needsUpdate = true;
   }
 
   _updateBurstParticles(dt) {
@@ -1199,7 +1428,7 @@ export class HeartScene {
       }
 
       p.vel.multiplyScalar(1 - dt * 1.3);
-      p.vel.y += dt * 0.35; // gently float up
+      p.vel.y += dt * 0.35;
       p.pos.addScaledVector(p.vel, dt);
 
       const t = p.life / p.maxLife;
@@ -1221,7 +1450,7 @@ export class HeartScene {
     );
 
     const aspect = this.camera.aspect || 1;
-    const responsiveOrbitScale = aspect < 0.72 ? 0.76 : aspect < 1.1 ? 0.88 : 1.0;
+    const responsiveOrbitScale = aspect < 0.72 ? 0.78 : aspect < 1.1 ? 0.9 : 1.0;
     const responsiveCardScale = aspect < 0.72 ? 0.78 : 1.0;
 
     const heartPos = this.heartGroup.position;
@@ -1254,11 +1483,14 @@ export class HeartScene {
         item.group.position.lerp(targetPos, Math.min(1, dt * 8));
       }
 
-      // Face camera smoothly while maintaining subtle perspective tilt
       item.group.lookAt(this.camera.position);
 
       const isHovered = this.hoveredCard === item.index;
-      item.hoverLerp = THREE.MathUtils.lerp(item.hoverLerp, isHovered ? 1 : 0, Math.min(1, dt * 10));
+      item.hoverLerp = THREE.MathUtils.lerp(
+        item.hoverLerp,
+        isHovered ? 1 : 0,
+        Math.min(1, dt * 10)
+      );
       const scale =
         this.cardRevealProgress *
         responsiveCardScale *
@@ -1271,7 +1503,7 @@ export class HeartScene {
   _updateResetTween(dt) {
     if (!this.resetTween) return;
     this.resetTween.progress = Math.min(1, this.resetTween.progress + dt * 2.2);
-    const t = 1 - Math.pow(1 - this.resetTween.progress, 3); // easeOutCubic
+    const t = 1 - Math.pow(1 - this.resetTween.progress, 3);
 
     this.camera.position.lerpVectors(this.resetTween.startCam, this.resetTween.endCam, t);
     this.controls.target.lerpVectors(this.resetTween.startTarget, this.resetTween.endTarget, t);
@@ -1301,11 +1533,11 @@ export class HeartScene {
         this.heroStarAnchor.y + Math.cos(elapsed * 0.72) * 0.09,
         this.heroStarAnchor.z
       );
-      this.heroStarCore.scale.setScalar(1.18 + shimmer * 0.34);
-      this.heroStarCoreMat.opacity = 0.82 + shimmer * 0.18;
-      this.heroStarHalo.scale.setScalar(0.74 + shimmer * 0.24);
+      this.heroStarCore.scale.setScalar(1.22 + shimmer * 0.34);
+      this.heroStarCoreMat.opacity = 0.84 + shimmer * 0.16;
+      this.heroStarHalo.scale.setScalar(0.76 + shimmer * 0.24);
       this.heroStarHaloMat.rotation = elapsed * 0.22 + Math.PI / 4;
-      this.heroStarHaloMat.opacity = 0.42 + shimmer * 0.26;
+      this.heroStarHaloMat.opacity = 0.45 + shimmer * 0.25;
     }
   }
 
@@ -1316,9 +1548,8 @@ export class HeartScene {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     const elapsed = this.clock.elapsedTime;
 
-    this._updateIntro(dt, elapsed);
     this._updateResetTween(dt);
-    this._updateHeart(dt, elapsed);
+    this._updateHeartAndVortex(dt, elapsed);
     this._updateBurstParticles(dt);
     this._updateIdolCards(dt, elapsed);
     this._updateStars(elapsed);

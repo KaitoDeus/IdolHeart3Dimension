@@ -95,6 +95,38 @@
       <header class="hud-top">
         <div class="hud-top-actions">
           <button
+            id="btn-music-toggle"
+            class="pill-btn music-btn"
+            type="button"
+            title="Phát nhạc nền"
+            aria-pressed="false"
+          >
+            <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l10.6-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14z" />
+            </svg>
+            <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="6" y="4" width="4.5" height="16" rx="1.2" />
+              <rect x="13.5" y="4" width="4.5" height="16" rx="1.2" />
+            </svg>
+            <span class="eq-bars" aria-hidden="true">
+              <span></span><span></span><span></span>
+            </span>
+            <span id="music-btn-label">Phát nhạc</span>
+          </button>
+
+          <button
+            id="btn-color-toggle"
+            class="pill-btn color-btn"
+            type="button"
+            data-theme="cyan"
+            title="Đổi màu trái tim sang Hồng"
+            aria-pressed="false"
+          >
+            <span class="color-swatch" aria-hidden="true"></span>
+            <span id="color-btn-label">Xanh</span>
+          </button>
+
+          <button
             id="btn-auto-rotate"
             class="pill-btn is-active"
             type="button"
@@ -351,6 +383,8 @@
         </div>
       </section>
     </main>
+
+    <audio id="bg-music" src="./music/theme.m4a" loop preload="auto"></audio>
 
     <noscript>
       <p style="padding:24px;color:#fff;background:#09030a;font-family:sans-serif">

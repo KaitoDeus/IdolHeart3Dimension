@@ -260,6 +260,211 @@ export function createHeartDrawFilaments(scale = [1.15, 1.12, 1.2]) {
 }
 
 /**
+ * Generates volumetric 3D stardust heart particles (dense shell + glowing interior)
+ * plus matching vortex-pool origin coordinates for assembly & fountain turbulence.
+ */
+export function createVolumetricHeartParticles(
+  count = 5400,
+  scale = [1.18, 1.15, 1.18],
+  vortexY = -1.56
+) {
+  const positions = new Float32Array(count * 3);
+  const vortexPositions = new Float32Array(count * 3);
+  const seeds = new Float32Array(count);
+  const sizes = new Float32Array(count);
+  const colorMix = new Float32Array(count);
+  const [sx, sy, sz] = scale;
+
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+
+    const ux = Math.sin(phi) * Math.cos(theta);
+    const uy = Math.cos(phi);
+    const uz = Math.sin(phi) * Math.sin(theta);
+
+    const rSurface = findSurfaceRadius(ux, uy, uz);
+    const isShell = Math.random() < 0.64;
+    const shellScale = isShell
+      ? 0.90 + Math.random() * 0.12
+      : 0.25 + Math.pow(Math.random(), 0.45) * 0.66;
+
+    const px = rSurface * ux * shellScale * sx;
+    const py = (CENTER_Y + rSurface * uy * shellScale - 0.12) * sy;
+    const pz = rSurface * uz * shellScale * sz;
+
+    positions[i * 3] = px;
+    positions[i * 3 + 1] = py;
+    positions[i * 3 + 2] = pz;
+
+    const vr = 0.14 + Math.pow(Math.random(), 0.75) * 1.18;
+    const va = theta + (Math.random() - 0.5) * 0.9;
+    vortexPositions[i * 3] = Math.cos(va) * vr;
+    vortexPositions[i * 3 + 1] = vortexY + (Math.random() - 0.5) * 0.08;
+    vortexPositions[i * 3 + 2] = Math.sin(va) * vr;
+
+    seeds[i] = Math.random();
+    sizes[i] = isShell ? 0.8 + Math.random() * 1.9 : 0.6 + Math.random() * 1.4;
+    // Left-hemisphere lavender bias + bright cyan-white core like reference video
+    const leftBias = THREE.MathUtils.clamp((-px + 0.55) / 1.9, 0, 1);
+    colorMix[i] = THREE.MathUtils.clamp(leftBias * 0.72 + Math.random() * 0.28, 0, 1);
+  }
+
+  return { positions, vortexPositions, seeds, sizes, colorMix };
+}
+
+/**
+ * Generates swirling stardust particles for the glowing cosmic vortex pool below the heart.
+ */
+export function createVortexPoolAttributes(count = 1500, yLevel = -1.56) {
+  const positions = new Float32Array(count * 3);
+  const radii = new Float32Array(count);
+  const angles = new Float32Array(count);
+  const seeds = new Float32Array(count);
+  const sizes = new Float32Array(count);
+
+  for (let i = 0; i < count; i++) {
+    const r = 0.12 + Math.pow(Math.random(), 1.35) * 1.38;
+    const a = Math.random() * Math.PI * 2;
+    const yOff = (Math.random() - 0.5) * 0.09 * (1.15 - r * 0.5);
+
+    positions[i * 3] = Math.cos(a) * r;
+    positions[i * 3 + 1] = yLevel + yOff;
+    positions[i * 3 + 2] = Math.sin(a) * r;
+
+    radii[i] = r;
+    angles[i] = a;
+    seeds[i] = Math.random();
+    sizes[i] = 0.85 + Math.random() * 2.1;
+  }
+
+  return { positions, radii, angles, seeds, sizes };
+}
+
+/**
+ * Generates glowing curved crescent energy arcs spinning inside the vortex pedestal.
+ */
+export function createVortexArcsGeometry(yLevel = -1.56) {
+  const arcConfigs = [
+    { radius: 0.48, start: 0.0, span: Math.PI * 1.45, yOff: 0.015, speed: 1.4 },
+    { radius: 0.68, start: 1.8, span: Math.PI * 1.55, yOff: -0.01, speed: -1.1 },
+    { radius: 0.86, start: 0.7, span: Math.PI * 1.3, yOff: 0.02, speed: 0.95 },
+    { radius: 1.04, start: 3.1, span: Math.PI * 1.65, yOff: -0.015, speed: 0.75 },
+    { radius: 1.18, start: 4.5, span: Math.PI * 1.2, yOff: 0.01, speed: -0.65 },
+    { radius: 1.32, start: 1.2, span: Math.PI * 1.05, yOff: -0.02, speed: 0.52 },
+    { radius: 0.34, start: 2.2, span: Math.PI * 1.7, yOff: 0.025, speed: 1.8 }
+  ];
+
+  const positions = [];
+  const arcProgress = [];
+  const arcSpeeds = [];
+
+  for (const cfg of arcConfigs) {
+    const steps = 64;
+    for (let i = 0; i < steps; i++) {
+      const t0 = i / steps;
+      const t1 = (i + 1) / steps;
+      const a0 = cfg.start + t0 * cfg.span;
+      const a1 = cfg.start + t1 * cfg.span;
+
+      const r0 = cfg.radius * (0.94 + 0.06 * Math.sin(t0 * Math.PI));
+      const r1 = cfg.radius * (0.94 + 0.06 * Math.sin(t1 * Math.PI));
+
+      positions.push(
+        Math.cos(a0) * r0,
+        yLevel + cfg.yOff,
+        Math.sin(a0) * r0,
+        Math.cos(a1) * r1,
+        yLevel + cfg.yOff,
+        Math.sin(a1) * r1
+      );
+      arcProgress.push(t0, t1);
+      arcSpeeds.push(cfg.speed, cfg.speed);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('aProgress', new THREE.Float32BufferAttribute(arcProgress, 1));
+  geo.setAttribute('aSpeed', new THREE.Float32BufferAttribute(arcSpeeds, 1));
+  return geo;
+}
+
+/**
+ * Generates curved 3D upward fountain light-streak paths shooting from the
+ * vortex pool through the heart into the lobes (inspired by the reference video).
+ */
+export function createFountainStreakCurves(
+  streakCount = 46,
+  scale = [1.18, 1.15, 1.18],
+  yBase = -1.56
+) {
+  const positions = [];
+  const progresses = [];
+  const seeds = [];
+  const curves = [];
+
+  const stepsPerCurve = 44;
+
+  for (let s = 0; s < streakCount; s++) {
+    const seed = (s + 0.5) / streakCount;
+    const baseAngle = seed * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+    const baseR = 0.16 + Math.random() * 0.72;
+
+    const pStart = new THREE.Vector3(
+      Math.cos(baseAngle) * baseR,
+      yBase + (Math.random() - 0.5) * 0.06,
+      Math.sin(baseAngle) * baseR
+    );
+
+    // Mid-swirl waist near heart tip / belly
+    const waistAngle = baseAngle + (s % 2 === 0 ? 0.55 : -0.55);
+    const pMid1 = new THREE.Vector3(
+      Math.cos(waistAngle) * (0.28 + Math.random() * 0.35),
+      -0.85 + Math.random() * 0.35,
+      Math.sin(waistAngle) * (0.24 + Math.random() * 0.25)
+    );
+
+    // Target point across upper heart lobes & body
+    const targetPhi = baseAngle + (s % 2 === 0 ? 0.9 : -0.9);
+    const targetTheta = 0.28 + Math.random() * 1.15;
+    const ux = Math.sin(targetTheta) * Math.cos(targetPhi);
+    const uy = Math.cos(targetTheta);
+    const uz = Math.sin(targetTheta) * Math.sin(targetPhi);
+    const pTarget = evaluateTaubinSurfacePoint(ux, uy, uz, scale, 0.92 + Math.random() * 0.18);
+
+    // Fan-out curve point just above/outside pTarget
+    const pMid2 = pMid1.clone().lerp(pTarget, 0.55);
+    pMid2.x *= 1.15;
+    pMid2.z *= 1.15;
+
+    const pEnd = pTarget.clone();
+    pEnd.y += 0.14 + Math.random() * 0.22;
+    pEnd.x *= 1.06;
+    pEnd.z *= 1.06;
+
+    const curve = new THREE.CatmullRomCurve3([pStart, pMid1, pMid2, pTarget, pEnd]);
+    const sampled = curve.getPoints(stepsPerCurve);
+    curves.push({ points: sampled, seed });
+
+    for (let i = 0; i < sampled.length - 1; i++) {
+      const a = sampled[i];
+      const b = sampled[i + 1];
+      positions.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      progresses.push(i / stepsPerCurve, (i + 1) / stepsPerCurve);
+      seeds.push(seed, seed);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('aProgress', new THREE.Float32BufferAttribute(progresses, 1));
+  geometry.setAttribute('aSeed', new THREE.Float32BufferAttribute(seeds, 1));
+
+  return { geometry, curves };
+}
+
+/**
  * Generates a high-contrast astronomical 4-point diffraction-spike star texture
  * for cosmic highlight stars.
  */

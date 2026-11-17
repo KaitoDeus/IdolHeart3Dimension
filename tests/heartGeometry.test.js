@@ -3,6 +3,10 @@ import {
   createTaubinHeartGeometry,
   createHeartAuraAttributes,
   createHeartDrawFilaments,
+  createVolumetricHeartParticles,
+  createVortexPoolAttributes,
+  createVortexArcsGeometry,
+  createFountainStreakCurves,
   evaluateTaubinSurfacePoint
 } from '../src/three/heartGeometry.js';
 
@@ -89,5 +93,35 @@ describe('3D Taubin Heart Geometry & Drawing Filaments', () => {
     const leftPt = evaluateTaubinSurfacePoint(-1, 0, 0);
     expect(rightPt.x).toBeGreaterThan(0.9);
     expect(leftPt.x).toBeCloseTo(-rightPt.x, 4);
+  });
+
+  it('builds volumetric stardust heart particles, vortex base, and fountain streaks', () => {
+    const vp = createVolumetricHeartParticles(600, [1.18, 1.14, 1.18], -1.58);
+    expect(vp.positions.length).toBe(1800);
+    expect(vp.vortexPositions.length).toBe(1800);
+    expect(vp.colorMix.length).toBe(600);
+    for (let i = 0; i < 600; i++) {
+      expect(Number.isFinite(vp.positions[i * 3])).toBe(true);
+      expect(vp.vortexPositions[i * 3 + 1]).toBeCloseTo(-1.58, 0);
+      expect(vp.colorMix[i]).toBeGreaterThanOrEqual(0);
+      expect(vp.colorMix[i]).toBeLessThanOrEqual(1);
+    }
+
+    const pool = createVortexPoolAttributes(300, -1.58);
+    expect(pool.positions.length).toBe(900);
+    expect(pool.radii.length).toBe(300);
+
+    const arcs = createVortexArcsGeometry(-1.58);
+    expect(arcs.getAttribute('position').count).toBeGreaterThan(400);
+    arcs.dispose();
+
+    const { geometry: streakGeo, curves } = createFountainStreakCurves(16, [1.18, 1.14, 1.18], -1.58);
+    expect(curves).toHaveLength(16);
+    expect(streakGeo.getAttribute('position').count).toBeGreaterThan(500);
+    for (const c of curves) {
+      expect(c.points[0].y).toBeLessThan(-1.4);
+      expect(c.points[c.points.length - 1].y).toBeGreaterThan(-0.3);
+    }
+    streakGeo.dispose();
   });
 });
