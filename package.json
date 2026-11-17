@@ -1,0 +1,21 @@
+{
+  "name": "cdrama-heart-3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "three": "^0.174.0"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "vite": "^6.2.0",
+    "vitest": "^5.1.0"
+  }
+}

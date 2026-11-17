@@ -1,0 +1,22 @@
+{
+  "name": "Trái Tim 3D · C-Drama Idol Starlight",
+  "short_name": "Trái Tim 3D",
+  "description": "Trang web vẽ trái tim 3D tương tác kéo thả bằng Three.js, responsive đa thiết bị, click mở bộ sưu tập ảnh Idol C-Drama.",
+  "lang": "vi",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#09030a",
+  "theme_color": "#09030a",
+  "icons": [
+    {
+      "src": "./favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "./apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover"
+    />
+    <title>Trái Tim 3D Three.js · Bộ Sưu Tập Ảnh Idol C-Drama</title>
+    <meta
+      name="description"
+      content="Trải nghiệm trái tim 3D pha lê tương tác kéo thả bằng Three.js giữa bầu trời sao vũ trụ. Thiết kế responsive cho mobile, tablet, desktop; chạm vào trái tim để khám phá bộ sưu tập ảnh 14 Idol C-Drama nổi tiếng."
+    />
+    <meta
+      name="keywords"
+      content="trái tim 3D, Three.js, WebGL, tương tác kéo thả, idol C-Drama, Tiêu Chiến, Địch Lệ Nhiệt Ba, Vương Nhất Bác, Triệu Lộ Tư, Bạch Lộc, Vương Hạc Đệ"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#09030a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <!-- Open Graph / Social Sharing -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="vi_VN" />
+    <meta property="og:site_name" content="Trái Tim 3D C-Drama Starlight" />
+    <meta property="og:title" content="Trái Tim 3D Three.js · Bộ Sưu Tập Idol C-Drama" />
+    <meta
+      property="og:description"
+      content="Xoay 360° & kéo thả tự do trái tim 3D giữa bầu trời sao vũ trụ, chạm vào trái tim để mở khóa bộ ảnh 14 Idol C-Drama."
+    />
+    <meta property="og:image" content="./og-cover.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Trái Tim 3D Three.js và ngôi sao highlight giữa vũ trụ" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Trái Tim 3D Three.js · Bộ Sưu Tập Idol C-Drama" />
+    <meta
+      name="twitter:description"
+      content="Xoay 360° & kéo thả tự do trái tim 3D, click vào trái tim để khám phá ảnh Idol C-Drama."
+    />
+    <meta name="twitter:image" content="./og-cover.png" />
+
+    <!-- Icons & PWA Manifest -->
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <link rel="manifest" href="./site.webmanifest" />
+
+    <!-- Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Trái Tim 3D C-Drama Starlight",
+        "description": "Ứng dụng web tương tác vẽ trái tim 3D bằng Three.js hỗ trợ kéo thả tự do, thiết kế responsive và hiển thị bộ sưu tập ảnh các Idol C-Drama khi nhấn vào trái tim.",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Web Browser",
+        "inLanguage": "vi",
+        "image": "./og-cover.png",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "VND"
+        }
+      }
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <main id="app" class="app-shell">
+      <h1 class="sr-only">
+        Trái Tim 3D Three.js Tương Tác Kéo Thả &amp; Bộ Sưu Tập Ảnh Idol C-Drama
+      </h1>
+
+      <!-- 3D Three.js Stage -->
+      <canvas
+        id="heart-canvas"
+        aria-label="Mô hình trái tim 3D tương tác kéo thả"
+      ></canvas>
+
+      <!-- Ambient subtle radial vignette -->
+      <div class="stage-vignette" aria-hidden="true"></div>
+
+      <!-- Top Floating Header -->
+      <header class="hud-top">
+        <div class="hud-top-actions">
+          <button
+            id="btn-auto-rotate"
+            class="pill-btn is-active"
+            type="button"
+            title="Bật/tắt tự xoay"
+            aria-pressed="true"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+              <polyline points="21 3 21 9 15 9" />
+            </svg>
+            <span class="btn-label-desktop">Tự xoay</span>
+          </button>
+
+          <button
+            id="btn-open-gallery"
+            class="pill-btn pill-primary"
+            type="button"
+            title="Mở bộ sưu tập Idol C-Drama"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            <span>Idol <span id="idol-count-badge" class="count-chip">14</span></span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Interactive Bottom Control Dock -->
+      <div class="hud-bottom">
+        <nav class="control-dock" aria-label="Điều khiển tương tác 3D">
+          <div class="mode-switch" role="group" aria-label="Chế độ kéo thả">
+            <button
+              id="mode-orbit"
+              class="mode-btn is-active"
+              type="button"
+              data-mode="orbit"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="9" />
+                <ellipse cx="12" cy="12" rx="9" ry="3.8" />
+              </svg>
+              <span>Xoay 360°</span>
+            </button>
+            <button
+              id="mode-drag"
+              class="mode-btn"
+              type="button"
+              data-mode="drag"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20" />
+              </svg>
+              <span>Kéo thả tự do</span>
+            </button>
+          </div>
+
+          <div class="dock-divider" aria-hidden="true"></div>
+
+          <button
+            id="btn-toggle-3d-cards"
+            class="dock-icon-btn"
+            type="button"
+            title="Hiện/ẩn thẻ Idol quanh trái tim"
+            aria-pressed="false"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3l1.9 4.2L18 9l-4.1 1.8L12 15l-1.9-4.2L6 9l4.1-1.8L12 3z" />
+              <path d="M19 15l.9 2 .1.1 2 .9-2 .9-.1.1-.9 2-.9-2-.1-.1-2-.9 2-.9.1-.1.9-2z" />
+            </svg>
+            <span class="dock-btn-label">Thẻ 3D</span>
+          </button>
+
+          <button
+            id="btn-reset-view"
+            class="dock-icon-btn"
+            type="button"
+            title="Đặt lại vị trí trái tim & góc nhìn"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+            <span class="dock-btn-label">Đặt lại</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Responsive C-Drama Idol Photo Gallery Modal -->
+      <section
+        id="gallery-modal"
+        class="gallery-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="gallery-title"
+        hidden
+      >
+        <div class="gallery-backdrop" data-close-gallery></div>
+        <div class="gallery-sheet">
+          <div class="gallery-header">
+            <div class="gallery-heading">
+              <span class="gallery-kicker">C-DRAMA STARLIGHT COLLECTION</span>
+              <h2 id="gallery-title" class="gallery-title">
+                Khoảnh Khắc Idol C-Drama
+              </h2>
+            </div>
+
+            <button
+              id="btn-close-gallery"
+              class="icon-close-btn"
+              type="button"
+              aria-label="Đóng bộ sưu tập để ngắm trái tim 3D"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="gallery-toolbar">
+            <div class="filter-chips" role="tablist" aria-label="Lọc thần tượng">
+              <button
+                class="filter-chip is-active"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                data-filter="all"
+              >
+                Tất cả (14)
+              </button>
+              <button
+                class="filter-chip"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                data-filter="actress"
+              >
+                Nữ thần
+              </button>
+              <button
+                class="filter-chip"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                data-filter="actor"
+              >
+                Nam thần
+              </button>
+            </div>
+
+            <div class="gallery-toolbar-right">
+              <button id="btn-shuffle-idols" class="toolbar-action-btn" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="16 3 21 3 21 8" />
+                  <line x1="4" y1="20" x2="21" y2="3" />
+                  <polyline points="21 16 21 21 16 21" />
+                  <line x1="15" y1="15" x2="21" y2="21" />
+                  <line x1="4" y1="4" x2="9" y2="9" />
+                </svg>
+                <span>Xáo trộn</span>
+              </button>
+              <button
+                class="toolbar-action-btn toolbar-3d-btn"
+                type="button"
+                data-close-gallery
+              >
+                <span>Ngắm trái tim 3D</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="idol-grid" class="idol-grid"></div>
+        </div>
+      </section>
+
+      <!-- Responsive Lightbox Spotlight Viewer -->
+      <section
+        id="lightbox"
+        class="lightbox"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lightbox-name"
+        hidden
+      >
+        <div class="lightbox-backdrop" data-close-lightbox></div>
+        <div class="lightbox-card" id="lightbox-card">
+          <button
+            id="btn-close-lightbox"
+            class="icon-close-btn lightbox-close"
+            type="button"
+            aria-label="Đóng ảnh phóng to"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+
+          <button
+            id="lightbox-prev"
+            class="lightbox-nav lightbox-prev"
+            type="button"
+            aria-label="Ảnh trước"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+
+          <button
+            id="lightbox-next"
+            class="lightbox-nav lightbox-next"
+            type="button"
+            aria-label="Ảnh tiếp theo"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+
+          <div class="lightbox-media">
+            <img id="lightbox-img" src="" alt="" />
+          </div>
+
+          <div class="lightbox-info">
+            <div class="lightbox-meta-top">
+              <span id="lightbox-index" class="lightbox-counter">1 / 14</span>
+              <span id="lightbox-hanzi" class="lightbox-hanzi">肖战</span>
+            </div>
+            <h3 id="lightbox-name" class="lightbox-name">Tiêu Chiến</h3>
+            <p id="lightbox-eng" class="lightbox-eng">Xiao Zhan</p>
+            <p id="lightbox-tagline" class="lightbox-tagline"></p>
+
+            <div class="lightbox-section">
+              <span class="lightbox-label">Phim tiêu biểu</span>
+              <div id="lightbox-dramas" class="drama-tags"></div>
+            </div>
+
+            <div class="lightbox-footer">
+              <span id="lightbox-credit" class="lightbox-credit"></span>
+              <div class="lightbox-mobile-arrows">
+                <button class="mobile-step-btn" type="button" data-lb-step="-1">
+                  ← Trước
+                </button>
+                <button class="mobile-step-btn" type="button" data-lb-step="1">
+                  Sau →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <noscript>
+      <p style="padding:24px;color:#fff;background:#09030a;font-family:sans-serif">
+        Trang web Trái Tim 3D Three.js cần bật JavaScript để hiển thị mô hình 3D và bộ sưu tập ảnh Idol C-Drama.
+      </p>
+    </noscript>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
